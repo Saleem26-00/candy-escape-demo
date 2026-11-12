@@ -1,0 +1,127 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Candy Escape — Drag Test v4</title><style>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;overscroll-behavior:none}body{font-family:system-ui,-apple-system,sans-serif;color:#fff;background:radial-gradient(ellipse at top,#325ca0,#09152f 78%);display:flex;justify-content:center}.app{width:min(100%,480px);padding:18px 13px 30px}.top{display:flex;justify-content:space-between;align-items:center;gap:8px}.brand{font-size:26px;font-weight:1000;color:#ffe19a;text-shadow:0 3px #9b6228}.small{font-size:11px;color:#bbd6ff}.timer{border:2px solid #eac06b;background:#102d5e;border-radius:14px;padding:8px 13px;font-weight:900;font-size:23px;font-variant-numeric:tabular-nums}.panel{margin-top:22px;padding:20px 11px 22px;border:3px solid #c59a50;border-radius:26px;background:linear-gradient(140deg,#2e5b9e,#17376a);box-shadow:0 18px 35px #0007}.board{position:relative;width:100%;aspect-ratio:1;touch-action:none;user-select:none;-webkit-user-select:none;direction:ltr}.grid{position:absolute;inset:5.5%;border:7px solid #8bbaff;border-radius:14px;background:repeating-linear-gradient(90deg,transparent 0 calc(16.666% - 1px),#ffffff22 calc(16.666% - 1px) 16.666%),repeating-linear-gradient(0deg,#244a83 0 calc(16.666% - 1px),#ffffff1a calc(16.666% - 1px) 16.666%);box-shadow:inset 0 0 20px #051630,0 8px 15px #08193288;overflow:visible}.piece{position:absolute;touch-action:none;cursor:grab;filter:drop-shadow(0 4px 3px #0008);will-change:transform;z-index:3}.piece.dragging{z-index:8;cursor:grabbing}.piece svg{width:100%;height:100%;overflow:visible;pointer-events:none}.exit{position:absolute;z-index:2;pointer-events:none;border-radius:4px;box-shadow:0 0 12px currentColor}.hint{text-align:center;font-size:13px;line-height:1.7;color:#e2edff;margin:16px 0}.actions{text-align:center}button{font:900 16px system-ui;border:2px solid #ffe29b;background:linear-gradient(#ffda80,#ce9137);border-radius:13px;padding:11px 20px;color:#3d2912}.status{text-align:center;min-height:26px;color:#ffe38d;font-weight:800;margin-top:12px}.foot{text-align:center;font-size:11px;color:#a9c8f4;margin-top:18px}
+</style></head><body><main class="app"><div class="top"><div><div class="brand">🍬 Candy Escape</div><div class="small">SMOOTH DRAG v4 · LEVEL 01</div></div><div class="timer" id="timer">01:30</div></div><section class="panel"><div class="board" id="board"><div class="grid" id="grid"></div></div><div class="hint">اسحب الحلوى بإصبعك، وغيّر الاتجاه أثناء نفس السحبة. كل لون يخرج من فتحته.</div><div class="actions"><button id="reset">↻ إعادة المرحلة</button></div><div class="status" id="status"></div></section><div class="foot">نسخة لاختبار التحكم والخروج — ليست الرسومات النهائية</div></main><script>
+'use strict';
+const N=6;
+// Gates cover the full perpendicular span of their matching pieces.
+const initial=[
+{id:'red',color:'#ff597b',cells:[[1,1],[2,1]],gate:{side:'right',start:1,end:1}},
+{id:'blue',color:'#4bd6ff',cells:[[3,2],[3,3]],gate:{side:'bottom',start:3,end:3}},
+{id:'yellow',color:'#ffd44f',cells:[[1,4],[2,4]],gate:{side:'left',start:4,end:4}},
+{id:'green',color:'#6ee6a1',cells:[[4,0],[4,1]],gate:{side:'top',start:4,end:4}}];
+const grid=document.getElementById('grid'),status=document.getElementById('status'),clock=document.getElementById('timer');
+let pieces=[],drag=null,remaining=90,timer=null;
+const copy=o=>JSON.parse(JSON.stringify(o));
+const size=()=>grid.clientWidth/N;
+const occupied=id=>new Set(pieces.filter(p=>p.id!==id).flatMap(p=>p.cells.map(([x,y])=>`${x},${y}`)));
+function canPlace(p,dx,dy){const occ=occupied(p.id);return p.cells.every(([x,y])=>x+dx>=0&&x+dx<N&&y+dy>=0&&y+dy<N&&!occ.has(`${x+dx},${y+dy}`))}
+function atExit(p,dir){const g=p.gate;if((dir==='right'&&g.side!=='right')||(dir==='left'&&g.side!=='left')||(dir==='up'&&g.side!=='top')||(dir==='down'&&g.side!=='bottom'))return false;
+const xs=p.cells.map(c=>c[0]),ys=p.cells.map(c=>c[1]);const touching=dir==='right'?Math.max(...xs)===N-1:dir==='left'?Math.min(...xs)===0:dir==='up'?Math.min(...ys)===0:Math.max(...ys)===N-1;
+const cross=(dir==='right'||dir==='left')?ys:xs;return touching&&Math.min(...cross)>=g.start&&Math.max(...cross)<=g.end}
+function createSvg(p){const xs=p.cells.map(c=>c[0]),ys=p.cells.map(c=>c[1]);const minX=Math.min(...xs),minY=Math.min(...ys),w=Math.max(...xs)-minX+1,h=Math.max(...ys)-minY+1;const ns='http://www.w3.org/2000/svg';const svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox',`0 0 ${w*100} ${h*100}`);
+const defs=document.createElementNS(ns,'defs'),grad=document.createElementNS(ns,'linearGradient');grad.id=`g-${p.id}`;grad.setAttribute('x1','0');grad.setAttribute('y1','0');grad.setAttribute('x2','.8');grad.setAttribute('y2','1');for(const [offset,col] of [['0%','#ffffff'],['36%',p.color],['100%',p.color]]){const stop=document.createElementNS(ns,'stop');stop.setAttribute('offset',offset);stop.setAttribute('stop-color',col);if(offset==='0%')stop.setAttribute('stop-opacity','.75');grad.append(stop)}defs.append(grad);svg.append(defs);
+for(const [x,y] of p.cells){const rx=(x-minX)*100,ry=(y-minY)*100;const r=document.createElementNS(ns,'rect');for(const [k,v] of Object.entries({x:rx+2,y:ry+2,width:96,height:96,rx:18,fill:`url(#g-${p.id})`,stroke:'#ffffff77','stroke-width':2}))r.setAttribute(k,v);svg.append(r);const e=document.createElementNS(ns,'ellipse');for(const [k,v] of Object.entries({cx:rx+31,cy:ry+21,rx:21,ry:9,fill:'#ffffff99'}))e.setAttribute(k,v);svg.append(e)}return {svg,minX,minY,w,h}}
+function draw(){grid.querySelectorAll('.piece,.exit').forEach(el=>el.remove());for(const p of initial){const g=p.gate,el=document.createElement('div');el.className='exit';el.style.background=p.color;el.style.color=p.color;if(g.side==='top'||g.side==='bottom'){el.style.left=`${g.start/N*100}%`;el.style.width=`${(g.end-g.start+1)/N*100}%`;el.style.height='10px';el.style[g.side]='-9px'}else{el.style.top=`${g.start/N*100}%`;el.style.height=`${(g.end-g.start+1)/N*100}%`;el.style.width='10px';el.style[g.side]='-9px'}grid.append(el)}
+for(const p of pieces){const {svg,minX,minY,w,h}=createSvg(p),el=document.createElement('div');el.className='piece';el.dataset.id=p.id;el.style.left=`${minX/N*100}%`;el.style.top=`${minY/N*100}%`;el.style.width=`${w/N*100}%`;el.style.height=`${h/N*100}%`;el.append(svg);grid.append(el)}}
+// Continuous world coordinates (in grid-cell units) are separate from logical snapped cells.
+// The browser receives pointer events; rendering happens once per animation frame.
+let renderPending=false;
+function renderDrag(){renderPending=false;const d=drag;if(!d)return;d.el.style.transform=`translate3d(${d.offsetX*size()}px,${d.offsetY*size()}px,0)`}
+function requestRender(){if(!renderPending){renderPending=true;requestAnimationFrame(renderDrag)}}
+function bounds(p){return {minX:Math.min(...p.cells.map(c=>c[0])),maxX:Math.max(...p.cells.map(c=>c[0])),minY:Math.min(...p.cells.map(c=>c[1])),maxY:Math.max(...p.cells.map(c=>c[1]))}}
+function canOffset(p,x,y){
+ const occ=occupied(p.id),eps=1e-6;
+ return p.cells.every(([cx,cy])=>{
+  const l=cx+x,r=l+1,t=cy+y,b=t+1;
+  if(l < -eps||r>N+eps||t < -eps||b>N+eps)return false;
+  for(let ox=Math.floor(l+eps);ox<Math.ceil(r-eps);ox++)for(let oy=Math.floor(t+eps);oy<Math.ceil(b-eps);oy++){
+   if(occ.has(`${ox},${oy}`))return false;
+  }
+  return true;
+ });
+}
+// Move continuously along a single axis; sweep in small steps to prevent tunneling.
+function moveAxis(d,axis,amount){
+ if(Math.abs(amount)<1e-6)return;
+ const p=pieces.find(p=>p.id===d.id);if(!p)return;
+ const key=axis==='x'?'offsetX':'offsetY';
+ const parts=Math.ceil(Math.abs(amount)/.08),delta=amount/parts;
+ for(let i=0;i<parts;i++){
+  const nx=d.offsetX+(axis==='x'?delta:0),ny=d.offsetY+(axis==='y'?delta:0);
+  if(canOffset(p,nx,ny)){d[key]+=delta;continue}
+  // Binary-search the wall for pixel-accurate contact.
+  let lo=0,hi=1;
+  for(let j=0;j<12;j++){const mid=(lo+hi)/2;if(canOffset(p,d.offsetX+(axis==='x'?delta*mid:0),d.offsetY+(axis==='y'?delta*mid:0)))lo=mid;else hi=mid}
+  d[key]+=delta*lo;break;
+ }
+}
+function pointerDown(e){
+ const el=e.target.closest('.piece');if(!el||remaining<=0||drag)return;
+ const p=pieces.find(p=>p.id===el.dataset.id);if(!p)return;
+ e.preventDefault();grid.setPointerCapture(e.pointerId);
+ drag={id:p.id,el,pointerId:e.pointerId,lastX:e.clientX,lastY:e.clientY,offsetX:0,offsetY:0,axis:null,turnDistance:0};
+ el.style.transition='none';el.classList.add('dragging');status.textContent='';
+}
+function tryExit(d,e,deltaX,deltaY){
+ const p=pieces.find(p=>p.id===d.id);if(!p)return false;
+ const rect=grid.getBoundingClientRect(),cell=size();
+ const bb=bounds(p),x=bb.minX+d.offsetX,y=bb.minY+d.offsetY;
+ const dirs=[['right',deltaX>0&&bb.maxX+1+d.offsetX>=N-.015,e.clientX-rect.right],['left',deltaX<0&&x<=.015,rect.left-e.clientX],['down',deltaY>0&&bb.maxY+1+d.offsetY>=N-.015,e.clientY-rect.bottom],['up',deltaY<0&&y<=.015,rect.top-e.clientY]];
+ for(const [dir,touch,beyond] of dirs){
+  if(!touch||beyond<cell*.32||!atExit(p,dir))continue;
+  pieces=pieces.filter(q=>q.id!==p.id);drag=null;
+  try{grid.releasePointerCapture(e.pointerId)}catch(_){}
+  d.el.style.transition='transform 190ms ease-out, opacity 190ms ease-out';
+  d.el.style.transform=`translate3d(${(d.offsetX+(dir==='right'?1.5:dir==='left'?-1.5:0))*cell}px,${(d.offsetY+(dir==='down'?1.5:dir==='up'?-1.5:0))*cell}px,0)`;
+  d.el.style.opacity='0';
+  setTimeout(()=>{draw();status.textContent=pieces.length?'✨ خرجت الحلوى!':'🎉 مبروك! خرجت جميع القطع!'},200);
+  if(!pieces.length)clearInterval(timer);
+  return true;
+ }
+ return false;
+}
+function pointerMove(e){
+ const d=drag;if(!d||e.pointerId!==d.pointerId)return;
+ e.preventDefault();
+ const dx=e.clientX-d.lastX,dy=e.clientY-d.lastY;
+ d.lastX=e.clientX;d.lastY=e.clientY;
+ const unit=size();if(!unit)return;
+ // Finger motion chooses the axis. Small perpendicular wobble is ignored.
+ // A genuine change of direction takes effect without lifting the finger.
+ if(!d.axis)d.axis=Math.abs(dx)>=Math.abs(dy)?'x':'y';
+ const primary=d.axis==='x'?dx:dy,secondary=d.axis==='x'?dy:dx;
+ d.turnDistance+=secondary;
+ const threshold=Math.max(5,unit*.075);
+ if(Math.abs(d.turnDistance)>threshold&&Math.abs(d.turnDistance)>Math.abs(primary)*.85){
+  const next=d.axis==='x'?'y':'x';
+  // A corner can be rounded only near a snapped perpendicular grid alignment.
+  const perpendicular=d.axis==='x'?d.offsetX:d.offsetY;
+  const aligned=Math.abs(perpendicular-Math.round(perpendicular))<.18;
+  if(aligned){
+   if(d.axis==='x')d.offsetX=Math.round(d.offsetX);else d.offsetY=Math.round(d.offsetY);
+   d.axis=next;moveAxis(d,next,d.turnDistance/unit);d.turnDistance=0;
+  }
+ }else{
+  moveAxis(d,d.axis,primary/unit);
+  if(Math.abs(primary)>2)d.turnDistance*=.55;
+ }
+ requestRender();
+ tryExit(d,e,dx,dy);
+}
+function pointerUp(e){
+ const d=drag;if(!d||e.pointerId!==d.pointerId)return;
+ const p=pieces.find(p=>p.id===d.id);drag=null;if(!p)return;
+ const sx=Math.round(d.offsetX),sy=Math.round(d.offsetY);
+ // Snap to the nearest legal cell; when the nearest is blocked, stay on the legal side.
+ const candidates=[[sx,sy],[Math.floor(d.offsetX),Math.floor(d.offsetY)],[Math.ceil(d.offsetX),Math.ceil(d.offsetY)],[0,0]];
+ let best=[0,0],dist=Infinity;
+ for(const [x,y] of candidates){if(!canPlace(p,x,y))continue;const v=(x-d.offsetX)**2+(y-d.offsetY)**2;if(v<dist){dist=v;best=[x,y]}}
+ const [mx,my]=best;
+ p.cells=p.cells.map(([x,y])=>[x+mx,y+my]);
+ d.el.style.transition='transform 110ms ease-out';
+ d.el.style.transform=`translate3d(${mx*size()}px,${my*size()}px,0)`;
+ setTimeout(()=>{if(!drag)draw()},125);
+}
+function reset(){pieces=copy(initial);drag=null;remaining=90;clock.textContent='01:30';clock.style.color='white';status.textContent='';clearInterval(timer);timer=setInterval(()=>{remaining=Math.max(0,remaining-1);clock.textContent=`${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;clock.style.color=remaining<=15?'#ff6e86':'white';if(!remaining){clearInterval(timer);status.textContent='انتهى الوقت، أعد المحاولة'}},1000);draw()}
+grid.addEventListener('pointerdown',pointerDown);grid.addEventListener('pointermove',pointerMove);grid.addEventListener('pointerup',pointerUp);grid.addEventListener('pointercancel',pointerUp);document.getElementById('reset').addEventListener('click',reset);reset();
+</script></body></html>
